@@ -1,25 +1,203 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: "Eterna2"
+date: "Saturday, February 14, 2015"
 output: 
-  html_document:
+  html_document: 
     keep_md: true
 ---
 
 
-## Loading and preprocessing the data
+## 1. Loading and preprocessing the data
+
+Rows with missing values for steps are removed from the dataset, and not considered or displayed in any of the subsequent analysis.
+```{r, cache=TRUE}
+# unzip file
+unzip('activity.zip')
+# read into memory
+dfNA = read.csv('activity.csv', as.is=TRUE)
+# remove entries with missing steps
+df = dfNA[!is.na(dfNA$steps),]
+```
 
 
+## 2. What is mean total number of steps taken per day?
 
-## What is mean total number of steps taken per day?
+```{r}
+# sum by date, remove NA
+tmp = with(df,by(steps,date,sum))
+# rows bind 
+tmp = do.call("rbind", as.list(tmp))
+# wrap as data frame
+stepsPerDay = data.frame(steps=tmp)
+```
+
+#### Total number of steps taken per day (# of days = `r nrow(stepsPerDay)`)
+```{r, echo=FALSE}
+# show table
+knitr::kable(stepsPerDay)
+```
+
+#### Histogram: Total number of steps taken per day
+```{r}
+hist(stepsPerDay$steps, breaks = 10, xlab="Total number of steps taken per day", ylab="Number of Days")
+```
+
+### Discussion
+1. Calculate and report the mean and median of the total number of steps taken per day. 
+
+```{r}
+meanStepsPerDay = mean(stepsPerDay$steps)
+medianStepsPerDay = median(stepsPerDay$steps)
+```
+
+The **mean** and **median** total number of steps taken per day are **`r format(meanStepsPerDay, scientific=FALSE)`** and **`r medianStepsPerDay`** respectively.
 
 
+## 3. What is the average daily activity pattern?
 
-## What is the average daily activity pattern?
+```{r}
+# sum by interval, remove NA
+tmp = with(df,by(steps,interval,mean))
+# rows bind 
+tmp = do.call("rbind", as.list(tmp))
+# wrap as data frame
+dailyActivity = data.frame(steps=tmp)
+```
+
+#### Average daily number of steps every 5 min intervals
+```{r}
+plot(rownames(dailyActivity),dailyActivity$steps, type="l", xlab="Number of Minutes", ylab="Average number of steps taken", main="")
+```
+
+```{r, echo=FALSE}
+# show table
+knitr::kable(dailyActivity)
+```
+
+#### Discussion
+1. Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+
+```{r}
+# get max steps
+maxActivity = max(dailyActivity)
+# get the index
+index = which.max(dailyActivity==maxActivity)
+# get the actual interval value
+maxInterval = rownames(dailyActivity)[index]
+```
+
+The  **Interval `r maxInterval` - `r as.integer(maxInterval)+5`  minutes** on average across all the days in the dataset, contains the maximum number of steps.
+
+## 4. Imputing missing values
+
+Missing values are imputed using the average daily activity level for the specified interval.
+
+```{r}
+# create dict to map between interval and average steps taken
+imputDict = cbind(interval=rownames(dailyActivity),steps=dailyActivity)
+# create a copy
+dfnew = dfNA
+# loop
+for (i in 1:nrow(dfnew)) 
+{
+  # check for NA
+  if (is.na(dfnew[i,]$steps)) 
+  {
+    # replace NA with average step for that interval
+    dfnew[i,]$steps = imputDict$steps[imputDict$interval == dfnew[i,]$interval] 
+  }
+}
+
+```
+
+```{r}
+# sum by date, remove NA
+tmp = with(dfnew,by(steps,date,sum))
+# rows bind 
+tmp = do.call("rbind", as.list(tmp))
+# wrap as data frame
+stepsPerDayNew = data.frame(steps=tmp)
+```
+
+#### Total number of steps taken per day  (# of days = `r nrow(stepsPerDayNew)`)
+```{r, echo=FALSE}
+tmp = merge(stepsPerDay,stepsPerDayNew,by="row.names",all.x=TRUE, all.y=TRUE,sort=TRUE)
+colnames(tmp) = c('date','steps (original)','steps (imputed)')
+knitr::kable(tmp)
+```
+
+#### Histogram: Total number of steps taken per day
+```{r, fig.height=8}
+par(mfrow=c(2,1))
+hist(stepsPerDay$steps, breaks = 10, ylim=c(0, 30), xlab="Total number of steps taken per day", ylab="Number of Days", main="Original")
+hist(stepsPerDayNew$steps, breaks = 10, ylim=c(0, 30), xlab="Total number of steps taken per day", ylab="Number of Days", main="Imputed")
+```
 
 
+#### Discussion
 
-## Imputing missing values
+1. Calculate and report the mean and median total number of steps taken per day. 
+
+```{r}
+meanStepsPerDayNew = mean(stepsPerDayNew$steps)
+medianStepsPerDayNew = median(stepsPerDayNew$steps)
+```
+The **mean** and **median** total number of steps taken per day of the imputed dataset are **`r format(meanStepsPerDayNew, scientific=FALSE)`** and **`r format(medianStepsPerDayNew, scientific=FALSE)`** respectively.
+
+2. Do these values differ from the estimates from the first part of the assignment? 
+
+```
+d(mean) = `r format(meanStepsPerDayNew - meanStepsPerDay, scientific=FALSE)`  
+d(median) = `r format(medianStepsPerDayNew - medianStepsPerDay, scientific=FALSE)`
+```
+
+3. What is the impact of imputing missing data on the estimates of the total daily number of steps?  
+
+As imputing is done using the average daily activity, there is no impact on the *mean*. However, the median is increased slightly as more days with average activity (formerly not included in the 1st study) are included in the analysis.
 
 
+## 5. Are there differences in activity patterns between weekdays and weekends?
 
-## Are there differences in activity patterns between weekdays and weekends?
+#### Appending weekend/weekday to the data
+```{r}
+# get the day from date
+days = weekdays(as.Date(dfnew$date))
+# replace sun and sat with weekend
+days[days=="Sunday" | days=="Saturday"] = "weekend"
+# replace the rest with weekday
+days[days!="weekend"] = "weekday"
+# append new col to data
+dfnew = cbind(dfnew,day=as.factor(days))
+```
+
+
+#### Tidying the data for Lattice plotting
+```{r}
+# group by interval and day
+tmp = with(dfnew,by(steps,list(interval,day),mean))
+# form a data frame
+dailyActivityAll = data.frame(cbind(tmp))
+# extract just weekend
+weekend = cbind(interval=rownames(dailyActivityAll),steps=dailyActivityAll$weekend,day="weekend")
+# extract just weekday
+weekday = cbind(interval=rownames(dailyActivityAll),steps=dailyActivityAll$weekday,day="weekday")
+# tidy up data for lattice input
+dailyActivityAll = data.frame(rbind(weekend,weekday))
+dailyActivityAll$day = as.factor(dailyActivityAll$day )
+dailyActivityAll$interval = as.numeric(as.character(dailyActivityAll$interval))
+dailyActivityAll$steps = as.numeric(as.character(dailyActivityAll$steps))
+
+```
+
+#### Comparison of average activity between weekend and weekdays
+```{r}
+library(lattice) 
+xyplot(steps ~ interval | day, data = dailyActivityAll, type='l', layout = c(1,2), xlab="Interval",ylab="Number of steps")
+
+```
+
+#### Discussion
+
+As shown in the charts on weekdays, average activity is much higher in the morning and lower for the rest of the day. A probably explaination would be that people tend to wake earlier and travel to work during weekend mornings. Similarly during weekday afternoons, most people should be working at their desk which result in a lower activity. 
+
